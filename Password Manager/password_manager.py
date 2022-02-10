@@ -1,9 +1,12 @@
+from msilib.schema import ListBox
 import sqlite3 as sql
 import tkinter as tk
 from tkinter import messagebox
 from hashlib import sha512
 
 FILE = "database.db"
+USER = None
+ACCOUNT_PASS = None
 
 
 def create_database():
@@ -50,12 +53,9 @@ def user_exists(username):
     return False
 
 
-def get_encryption_key(plain_pass: str):
-    return sha512(plain_pass.encode()).hexdigest()
-
-
 def get_hashed_password(plain_pass: str):
-    return sha512(get_encryption_key(plain_pass).encode()).hexdigest()
+    hashed_once = sha512(plain_pass.encode()).hexdigest()
+    return sha512(hashed_once.encode()).hexdigest()
 
 
 def add_user(username, password):
@@ -116,6 +116,9 @@ class EntryWithPlaceholder(tk.Entry):
 
 
 def login(login_window, username_entry, password_entry):
+    global USER
+    global ACCOUNT_PASS
+
     if username_entry.is_empty(): return throw_error("You must enter a username!")
     if password_entry.is_empty(): return throw_error("You must enter a password!")
 
@@ -126,12 +129,14 @@ def login(login_window, username_entry, password_entry):
 
     if correct_password(username, password):
         login_window.destroy()
-        main_menu(username, password)
+        USER = username
+        ACCOUNT_PASS = password
+        main_menu()
     else:
         return throw_error("Incorrect password!")
 
 
-def create_account(username_entry, password_entry):
+def create_account(login_window, username_entry, password_entry):
     if username_entry.is_empty(): return throw_error("You must enter a username!")
     if password_entry.is_empty(): return throw_error("You must enter a password!")
 
@@ -139,6 +144,8 @@ def create_account(username_entry, password_entry):
     password = password_entry.get()
 
     add_user(username, password)
+
+    login(login_window, username_entry, password_entry)
 
 
 def login_menu():
@@ -213,37 +220,106 @@ def login_menu():
         bg="#ec0c38",
         font=("Roboto", 12, "bold"),
         relief=tk.FLAT,
-        command=lambda: create_account(username_entry, password_entry)
+        command=lambda: create_account(login_window, username_entry, password_entry)
     )
     create_button.pack()
 
     login_window.mainloop()
 
 
-def decrypt(plain_text, key):
-    return "password here 123"
+def binary_to_decimal(binary):
+  decimal = 0
+  for b in range(len(binary) - 1, -1, -1):
+    bit = int(binary[b])
+    power = len(binary) - (b + 1)
+    decimal += bit * (2 ** power)
+  return decimal
 
 
-def get_passwords(username, password):
-    key = get_encryption_key(password)
+def text_to_binary(text):
+    text_bin = ""
+    for c in range(len(text)):
+        char = text[c]
+        decimal = ord(char)
 
+        char_bin = bin(decimal).replace('0b', '')
+        x = char_bin[::-1]
+        while len(x) < 7:
+            x += '0'
+        char_bin = x[::-1]
+
+        text_bin += char_bin
+        if c < len(text) - 1: text_bin += " "
+    return text_bin
+
+
+def binary_to_text(text_bin):
+    binaries = text_bin.split(" ")
+    text = ""
+    for binary in binaries:
+        decimal = binary_to_decimal(binary)
+        text += chr(decimal)
+    return text
+
+
+def xor(text_bin, key_bin):
+    if len(text_bin) > len(key_bin): return
+
+    result_bin = ""
+    for b in range(len(text_bin)):
+        if key_bin[b] == " ":
+            result_bin += " "
+        elif key_bin[b] == text_bin[b]:
+            result_bin += "0"
+        else:
+            result_bin += "1"
+
+    return result_bin
+
+
+def encrypt(plain_text, key):
+    key_bin = text_to_binary(key)
+    plain_bin = text_to_binary(plain_text)
+
+    cipher_bin = xor(plain_bin, key_bin)
+    if not cipher_bin: return "1000000"
+
+    return binary_to_text(cipher_bin)
+
+
+def decrypt(cipher_text, key):
+    key_bin = text_to_binary(key)
+    cipher_bin = text_to_binary(cipher_text)
+
+    plain_bin = xor(cipher_bin, key_bin)
+    if not plain_bin: return "unknown"
+
+    return binary_to_text(plain_bin)
+
+def get_encryption_key():
+    return sha512(ACCOUNT_PASS.encode()).hexdigest()
+
+def get_passwords():
     with sql.connect(FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("""
         SELECT tblPasswords.service, tblPasswords.username, tblPasswords.password
         FROM tblPasswords
         WHERE tblPasswords.user = ?
-        """, [username])
+        """, [USER])
 
         data = cursor.fetchall()
+
         passwords = []
         for entry in data:
-            password = decrypt(entry[2], key)
+            print(entry[2])
+            password = decrypt(entry[2], get_encryption_key())
             passwords.append([entry[0], entry[1], password])
+
         return passwords
 
 
-def main_menu(username, password):
+def main_menu():
     main_window = tk.Tk()
     main_window.iconbitmap("icon.ico")
     main_window.title("Ali's Password Manager")
@@ -270,15 +346,20 @@ def main_menu(username, password):
 
     logged_in = tk.Label(
         top,
-        text="Logged in as: " + username,
+        text="Logged in as: " + USER,
         fg="#ec0c38",
         bg="#24252A",
         font=("Roboto", 16, "bold")
     )
     logged_in.grid(sticky=tk.S, pady=(0, 20))
 
-    left = tk.Frame(main_window, highlightthickness=5, highlightcolor="#ec0c38", highlightbackground="#ec0c38",
-                    bg="#24252A")
+    left = tk.Frame(
+        main_window,
+        highlightthickness=5,
+        highlightcolor="#4a4a46",
+        highlightbackground="#ec0c38",
+        bg="#24252A"
+    )
     left.grid(row=1, column=0, sticky=tk.NSEW, padx=10, pady=10)
     left.columnconfigure(0, weight=1)
     left.rowconfigure(0, weight=1)
@@ -302,37 +383,161 @@ def main_menu(username, password):
         borderwidth=0,
         highlightthickness=0,
         relief=tk.FLAT,
-        selectmode=tk.SINGLE
+        selectmode=tk.MULTIPLE
     )
     passwords_list_box.grid(row=1, sticky=tk.NSEW, padx=(10, 40), pady=10)
-
-    for v in range(5):
-        passwords_list_box.insert(tk.END, "Service: Bank | Username: Ali Dee | Password: 123456")
 
     scroll_bar = tk.Scrollbar(
         left,
         relief=tk.FLAT
     )
-    scroll_bar.grid(row=1, sticky=tk.NS + tk.E, padx=(0, 10))
+    scroll_bar.grid(row=1, sticky=tk.NS + tk.E, padx=(0, 10), pady=(0, 10))
     passwords_list_box.config(yscrollcommand=scroll_bar.set)
     scroll_bar.config(command=passwords_list_box.yview)
 
-    right = tk.Frame(main_window, highlightthickness=5, highlightbackground="#ec0c38", bg="#24252A")
+    right = tk.Frame(
+        main_window,
+        highlightthickness=5,
+        highlightcolor="#4a4a46",
+        highlightbackground="#ec0c38",
+        bg="#24252A"
+    )
     right.grid(row=1, column=1, sticky=tk.NSEW, padx=10, pady=10)
     right.columnconfigure(0, weight=1)
     right.rowconfigure(0, weight=1)
 
-    # other_label = tk.Label(
-    #     right,
-    #     text="Other Label",
-    #     fg="#ec0c38",
-    #     bg="#24252A",
-    #     font=("Roboto", 24, "bold")
-    # )
-    # other_label.grid(sticky=tk.N, pady=(20, 0))
+    add_label = tk.Label(
+        right,
+        text="Add Password",
+        fg="#ec0c38",
+        bg="#24252A",
+        font=("Roboto", 24, "bold")
+    )
+    add_label.pack(pady=(20, 0))
 
+    service_entry = EntryWithPlaceholder(
+        right,
+        placeholder="Service",
+        placeholder_color="#9b0826",
+        fg="#ec0c38",
+        insertbackground="#ec0c38",
+        bg="#101113",
+        font=("Roboto", 16),
+        width=20,
+        relief=tk.FLAT,
+        justify="center"
+    )
+    service_entry.pack(pady=(20, 0))
+
+    username_entry = EntryWithPlaceholder(
+        right,
+        placeholder="Username",
+        placeholder_color="#9b0826",
+        fg="#ec0c38",
+        insertbackground="#ec0c38",
+        bg="#101113",
+        font=("Roboto", 16),
+        width=20,
+        relief=tk.FLAT,
+        justify="center"
+    )
+    username_entry.pack(pady=(20, 0))
+
+    password_entry = EntryWithPlaceholder(
+        right,
+        placeholder="Password",
+        placeholder_color="#9b0826",
+        show="*",  # TODO: Toggle with placeholder
+        fg="#ec0c38",
+        insertbackground="#ec0c38",
+        bg="#101113",
+        font=("Roboto", 16),
+        width=20,
+        relief=tk.FLAT,
+        justify="center"
+    )
+    password_entry.pack(pady=(20, 0))
+
+    add_button = tk.Button(
+        right,
+        text="Add Password",
+        fg="#edf0f1",
+        bg="#ec0c38",
+        font=("Roboto", 12, "bold"),
+        relief=tk.FLAT,
+        command=lambda: add_password(service_entry, username_entry, password_entry, passwords_list_box)
+    )
+    add_button.pack(pady=(20, 0))
+
+    remove_button = tk.Button(
+        right,
+        text="Remove Selected",
+        fg="#edf0f1",
+        bg="#ec0c38",
+        font=("Roboto", 12, "bold"),
+        relief=tk.FLAT,
+        command=lambda: remove_password(passwords_list_box)
+    )
+    remove_button.pack(pady=(20, 0))
+
+    refresh_passwords(passwords_list_box)
     main_window.mainloop()
 
 
+def refresh_passwords(list_box: tk.Listbox):
+    list_box.delete(0, tk.END)
+    passwords = get_passwords()
+    for password in passwords:
+        text = ""
+        for f in range(len(password)):
+            field = password[f]
+            text += field
+            if f < len(password) - 1: text += " "
+        list_box.insert(tk.END, text)
+
+
+def remove_password(list_box: tk.Listbox):
+    if list_box.curselection() == (): return throw_error("Nothing selected!")
+
+    for i in list_box.curselection():
+        print("[{}] {}".format(i, list_box.get(i)))
+
+    # with sql.connect(FILE) as conn:
+    #     cursor = conn.cursor()
+    #     cursor.execute("""
+
+
+
+def add_password(service_entry, username_entry, password_entry, list_box):
+    if service_entry.is_empty(): return throw_error("You must enter a service name!")
+    if username_entry.is_empty(): return throw_error("You must enter a username!")
+    if password_entry.is_empty(): return throw_error("You must enter a password!")
+
+    service = service_entry.get()
+    username = username_entry.get()
+    password = password_entry.get()
+
+    new_id = 0
+    with sql.connect(FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT ID
+        FROM tblPasswords
+        ORDER BY ID DESC LIMIT 1""")
+        data = cursor.fetchall()
+        if data == []:
+            new_id = 1
+        else:
+            new_id = data[0][0] + 1
+
+    with sql.connect(FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT INTO tblPasswords
+        VALUES (?,?,?,?,?)
+        """, (new_id, USER, service, username, encrypt(password, get_encryption_key())))
+    
+    refresh_passwords(list_box)
+    
 create_database()
 login_menu()
