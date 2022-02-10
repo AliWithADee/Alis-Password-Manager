@@ -291,7 +291,7 @@ def main_menu(username, password):
         bg="#24252A",
         font=("Roboto", 24, "bold")
     )
-    passwords_label.grid(row=0, sticky=tk.N, pady=(20, 0))
+    passwords_label.grid(row=0, sticky=tk.NW, pady=(20, 0), padx=(8, 0))
 
     passwords_list_box = tk.Listbox(
         left,
