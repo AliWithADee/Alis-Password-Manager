@@ -88,23 +88,41 @@ def validate_password(username, password):
     return False
 
 
-def get_passwords(user, user_pass):
-    with sql.connect(FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-        SELECT tblPasswords.ID, tblPasswords.service, tblPasswords.username, tblPasswords.password
-        FROM tblPasswords
-        WHERE tblPasswords.user = ?
-        """, [user])
+def get_passwords(user, user_pass, search=None):
+    if search:
+        with sql.connect(FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT tblPasswords.ID, tblPasswords.service, tblPasswords.username, tblPasswords.password
+            FROM tblPasswords
+            WHERE tblPasswords.user = ? AND tblPasswords.service LIKE {}
+            """.format("'%" + search + "%'"), [user])
 
-        data = cursor.fetchall()
+            data = cursor.fetchall()
 
-        passwords = []
-        for entry in data:
-            password = decrypt(entry[3], password_hashed_once(user_pass))
-            passwords.append([entry[0], entry[1], entry[2], password])
+            passwords = []
+            for entry in data:
+                password = decrypt(entry[3], password_hashed_once(user_pass))
+                passwords.append([entry[0], entry[1], entry[2], password])
 
-        return passwords
+            return passwords
+    else:
+        with sql.connect(FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT tblPasswords.ID, tblPasswords.service, tblPasswords.username, tblPasswords.password
+            FROM tblPasswords
+            WHERE tblPasswords.user = ?
+            """, [user])
+
+            data = cursor.fetchall()
+
+            passwords = []
+            for entry in data:
+                password = decrypt(entry[3], password_hashed_once(user_pass))
+                passwords.append([entry[0], entry[1], entry[2], password])
+
+            return passwords
 
 
 def add_password(user, user_pass, service, username, password):
